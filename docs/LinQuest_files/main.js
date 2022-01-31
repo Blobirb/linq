@@ -75,25 +75,31 @@ window.addEventListener("load", function(){
         if(Game.apiEnabled){
             parent.cmgGameEvent("start");
         }
+        /*
         else{
             console.log("start");
         }
+        */
     });
     Game.addAction("playlevelbutton", function(){
         if(Game.apiEnabled){
             parent.cmgGameEvent("start", Game.Level.nextIndex + "");
         }
+        /*
         else{
             console.log("start " + Game.Level.nextIndex);
         }
+        */
     });
     Game.addAction("resetlevelbutton", function(){
         if(Game.apiEnabled){
             parent.cmgGameEvent("replay", Game.Level.index + "");
         }
+        /*
         else{
             console.log("replay " + Game.Level.index);
         }
+        */
     });
 
     Engine.System.run();
