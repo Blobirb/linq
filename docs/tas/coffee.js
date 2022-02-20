@@ -162,11 +162,12 @@ PlayControl.prototype = {
 	}
 };
 var Engine = function() {
-	this.initialDirection = 0;
+	this.gameWidth = 0;
+	this.gameHeight = 0;
 	this.pausedCallback = haxe_ds_Option.None;
 	this.fullgameLevelCounter = 0;
 	this.fullgameVideo = null;
-	this.recording = new VideoRecorder(0);
+	this.recording = new VideoRecorder(0,0);
 	this.playback = haxe_ds_Option.None;
 	this.control = new PlayControl();
 	this.frameLength = 16.66666666;
@@ -195,6 +196,7 @@ var Engine = function() {
 	window.coffee.clearFullGame = function() {
 		_gthis.fullgameVideo = null;
 	};
+	window.coffee.setResolution = $bind(this,this.setResolutionWrapper);
 	this.slots = [];
 	var _g = 0;
 	while(_g < 10) {
@@ -206,7 +208,21 @@ var Engine = function() {
 };
 Engine.__name__ = true;
 Engine.prototype = {
-	wrapCallback: function(callback) {
+	setResolutionWrapper: function(height,width) {
+		if(Util.isSome(this.playback)) {
+			return;
+		}
+		this.setResolution(height,width);
+		this.recording.recordResolutionChange(this.control.frame,height,width);
+	}
+	,setResolution: function(height,width) {
+		var gameFrame = window.parent.document.getElementById("gameFrame");
+		this.gameHeight = height > 0 ? height : 0;
+		gameFrame.height = height > 0 ? height + "px" : "100%";
+		this.gameWidth = width > 0 ? width : 0;
+		gameFrame.width = width > 0 ? width + "px" : "100%";
+	}
+	,wrapCallback: function(callback) {
 		var _gthis = this;
 		return function() {
 			var _g = _gthis.playback;
@@ -219,6 +235,11 @@ Engine.prototype = {
 					var action = _g11[_g1];
 					++_g1;
 					_gthis.sendGameInput(action.code,action.down);
+				}
+				var resolutionAction = player.getResolutionAction(_gthis.control.frame);
+				if(resolutionAction != null) {
+					_gthis.setResolution(resolutionAction.height,resolutionAction.width);
+					_gthis.recording.recordResolutionChange(_gthis.control.frame,resolutionAction.height,resolutionAction.width);
 				}
 				if(_gthis.control.frame + 1 >= player.video.pauseFrame) {
 					if(_gthis.fullgameVideo == null) {
@@ -331,14 +352,16 @@ Engine.prototype = {
 		window.setTimeout(function() {
 			_gthis.sendGameInput(82,false);
 		},this.control.speed == 0 ? 100 : 100);
-		this.recording = new VideoRecorder(this.initialDirection);
+		if(slot == null) {
+			this.recording = new VideoRecorder(this.gameHeight,this.gameWidth);
+		}
 		this.control = new PlayControl();
 		this.primeControls();
 	}
 	,loadPlayback: function(video) {
 		this.playback = haxe_ds_Option.Some(new VideoPlayer(video));
-		this.initialDirection = video.initialDirection;
-		this.recording = new VideoRecorder(this.initialDirection);
+		this.recording = new VideoRecorder(video.initialGameHeight,video.initialGameWidth);
+		this.setResolution(video.initialGameHeight,video.initialGameWidth);
 	}
 	,handleInterfaceInput: function(input,ctrlKey,altKey) {
 		var oldControl = JSON.parse(JSON.stringify(this.control));
@@ -384,8 +407,8 @@ Engine.prototype = {
 			return true;
 		}
 		if(input == CoffeeInput.Replay) {
-			this.loadPlayback(this.slots[0]);
 			this.resetLevel(0,true);
+			this.loadPlayback(this.slots[0]);
 			this.control.speed = 1;
 			this.triggerPausedCallback();
 			return true;
@@ -393,8 +416,8 @@ Engine.prototype = {
 		if(input[1] == 7) {
 			var slot = input[2];
 			if(!ctrlKey) {
-				this.loadPlayback(this.slots[slot]);
 				this.resetLevel(slot);
+				this.loadPlayback(this.slots[slot]);
 				this.control.speed = 2;
 				if(altKey) {
 					this.control.pause();
@@ -610,17 +633,16 @@ Util.isSome = function(x) {
 	}
 };
 var Video = function(save) {
-	this.initialDirection = 0;
 	this.pauseFrame = 0;
 	this.actions = [];
+	this.resolutionActions = [];
 	if(save != null) {
 		var reader = new BSReader(save);
-		var saveSize = this.getOption(reader.readInt(12));
-		this.initialDirection = this.getOption(reader.readInt(12));
+		var actionsLength = this.getOption(reader.readInt(12));
 		this.pauseFrame = this.getOption(reader.readInt(Video.headerSize));
 		var frame = 0;
 		var _g1 = 0;
-		var _g = saveSize;
+		var _g = actionsLength;
 		while(_g1 < _g) {
 			var i = _g1++;
 			var longDelay = this.getOption(reader.read(1))[0];
@@ -629,6 +651,20 @@ var Video = function(save) {
 			var down = this.getOption(reader.read(1));
 			frame += delay;
 			this.actions.push({ frame : frame, code : code, down : down[0]});
+		}
+		this.initialGameHeight = this.getOption(reader.readInt(Video.resolutionSize));
+		this.initialGameWidth = this.getOption(reader.readInt(Video.resolutionSize));
+		var resolutionActionsLength = this.getOption(reader.readInt(8));
+		frame = 0;
+		var _g11 = 0;
+		var _g2 = resolutionActionsLength;
+		while(_g11 < _g2) {
+			var i1 = _g11++;
+			var delay1 = this.getOption(reader.readInt(Video.resolutionDelaySize));
+			var height = this.getOption(reader.readInt(Video.resolutionSize));
+			var width = this.getOption(reader.readInt(Video.resolutionSize));
+			frame += delay1;
+			this.resolutionActions.push({ frame : frame, height : height, width : width});
 		}
 	}
 };
@@ -674,7 +710,6 @@ Video.prototype = {
 	,toString: function() {
 		var writer = new BSWriter();
 		writer.writeInt(this.actions.length,12);
-		writer.writeInt(this.initialDirection,12);
 		writer.writeInt(this.pauseFrame,Video.headerSize);
 		var lastFrame = 0;
 		var _g = 0;
@@ -690,17 +725,34 @@ Video.prototype = {
 			writer.writeInt(action.code,3);
 			writer.write([action.down]);
 		}
+		writer.writeInt(this.initialGameHeight,Video.resolutionSize);
+		writer.writeInt(this.initialGameWidth,Video.resolutionSize);
+		writer.writeInt(this.resolutionActions.length,8);
+		lastFrame = 0;
+		var _g2 = 0;
+		var _g11 = this.resolutionActions;
+		while(_g2 < _g11.length) {
+			var action1 = _g11[_g2];
+			++_g2;
+			var delay1 = action1.frame - lastFrame;
+			lastFrame = action1.frame;
+			writer.writeInt(delay1,Video.resolutionDelaySize);
+			writer.writeInt(action1.height,Video.resolutionSize);
+			writer.writeInt(action1.width,Video.resolutionSize);
+		}
 		return writer.toString();
 	}
 	,copy: function() {
 		var video = new Video();
 		video.actions = this.actions.slice();
+		video.resolutionActions = this.resolutionActions.slice();
 		video.pauseFrame = this.pauseFrame;
-		video.initialDirection = this.initialDirection;
+		video.initialGameHeight = this.initialGameHeight;
+		video.initialGameWidth = this.initialGameWidth;
 		return video;
 	}
 };
-var VideoRecorder = function(initialDirection) {
+var VideoRecorder = function(initialGameHeight,initialGameWidth) {
 	this.video = new Video();
 	this.keyStates = [];
 	var _g1 = 0;
@@ -709,7 +761,11 @@ var VideoRecorder = function(initialDirection) {
 		var i = _g1++;
 		this.keyStates.push(false);
 	}
-	this.video.initialDirection = initialDirection;
+	this.video.initialGameHeight = initialGameHeight;
+	this.gameHeight = initialGameHeight;
+	this.video.initialGameWidth = initialGameWidth;
+	this.gameWidth = initialGameWidth;
+	console.log("Initial resolution: " + initialGameWidth + "x" + initialGameHeight);
 };
 VideoRecorder.__name__ = true;
 VideoRecorder.prototype = {
@@ -734,6 +790,19 @@ VideoRecorder.prototype = {
 			return;
 		}
 	}
+	,recordResolutionChange: function(frame,newHeight,newWidth) {
+		if(this.gameHeight == newHeight && this.gameWidth == newWidth) {
+			return;
+		}
+		if(this.video.resolutionActions.length > 0) {
+			var lastAction = this.video.resolutionActions[this.video.resolutionActions.length - 1];
+			if(lastAction.frame == frame) {
+				this.video.resolutionActions.pop();
+			}
+		}
+		this.video.resolutionActions.push({ frame : frame, height : newHeight, width : newWidth});
+		console.log("Resolution changed to " + newWidth + "x" + newHeight + " @ " + frame);
+	}
 	,saveVideo: function(frame) {
 		var res = this.video.copy();
 		res.pauseFrame = frame;
@@ -752,6 +821,13 @@ VideoPlayer.prototype = {
 			res.push({ code : Video.fromActionCode(action.code), down : action.down});
 		}
 		return res;
+	}
+	,getResolutionAction: function(frame) {
+		while(this.video.resolutionActions.length > 0 && this.video.resolutionActions[0].frame == frame) {
+			var action = this.video.resolutionActions.shift();
+			return action;
+		}
+		return null;
 	}
 };
 var haxe_crypto_Base64 = function() { };
@@ -872,6 +948,8 @@ Array.__name__ = true;
 Video.headerSize = 24;
 Video.delaySize = 5;
 Video.longDelaySize = 10;
+Video.resolutionDelaySize = 12;
+Video.resolutionSize = 14;
 Video.keyCodes = [37,39,38,87,72,32,80];
 haxe_crypto_Base64.CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 Main.main();

@@ -27,7 +27,7 @@ class Engine {
 
 	var control = new PlayControl();
 	var playback:Option<Video.VideoPlayer> = None; // If this is initialized, we're in playback.
-	var recording:Video.VideoRecorder = new Video.VideoRecorder(0);
+	var recording:Video.VideoRecorder = new Video.VideoRecorder(0, 0);
 	var slots:Array<Video>;
 
 	var fullgameVideo:Dynamic = null; // Array of multiple videos, to play several levels in one playback
@@ -36,7 +36,9 @@ class Engine {
 	var pausedCallback:Option<Dynamic> = None;
 	var _requestAnimationFrame:Dynamic;
 
-	var initialDirection = 0; // Not needed for NoaDev games, but the parameter is needed for the Video object.
+	// Size of the game frame window by pixels. The default value of 0 means "100%" size.
+	var gameHeight = 0;
+	var gameWidth = 0;
 
 	public function new() {
 		// Inject our methods into the global scope.
@@ -80,6 +82,8 @@ class Engine {
 		}
 		*/
 
+		untyped window.coffee.setResolution = this.setResolutionWrapper;
+
 		slots = new Array();
 		for (i in 0...10) {
 			slots.push(new Video());
@@ -90,6 +94,25 @@ class Engine {
 		calculateFps();
 	}
 
+	function setResolutionWrapper(height:Int, width:Int) {
+		// Not allowing to manually change resolution if we are in playback
+		if (Util.isSome(playback))
+			return;
+
+		setResolution(height, width);
+		recording.recordResolutionChange(control.frame, height, width);
+	}
+
+	function setResolution(height:Int, width:Int) {
+		untyped var gameFrame = window.parent.document.getElementById("gameFrame");
+
+		gameHeight = height > 0 ? height : 0;
+		gameFrame.height = height > 0 ? height + "px" : "100%";
+
+		gameWidth = width > 0 ? width : 0;
+		gameFrame.width = width > 0 ? width + "px" : "100%";
+	}
+
 	function wrapCallback(callback:Dynamic) {
 		return function() {
 			switch playback {
@@ -97,6 +120,13 @@ class Engine {
 					for (action in player.getActions(control.frame)) {
 						sendGameInput(action.code, action.down);
 					}
+
+					var resolutionAction = player.getResolutionAction(control.frame);
+					if (resolutionAction != null) {
+						setResolution(resolutionAction.height, resolutionAction.width);
+						recording.recordResolutionChange(control.frame, resolutionAction.height, resolutionAction.width);
+					}
+
 					if (control.frame + 1 >= player.video.pauseFrame) {
 						// playback is over
 
@@ -221,20 +251,24 @@ class Engine {
 		// Press the "r" key to trigger in-game reset
 		sendGameInput(82, true);
 
-		// NoaDev games requires the "r" key to be pressed during the entire frame, so we release it after 1 frame has passed.
+		// NoaDev games requires the "r" key to be pressed during the entire frame, so we release it after a few frames have passed.
 		Browser.window.setTimeout(function() {
 			sendGameInput(82, false);
 		}, control.speed == 0 ? 100 : 100);
 
-		recording = new Video.VideoRecorder(initialDirection);
+		// Create a new instance of video-recorded only when there is no save-slot replay.
+		// Otherwise, the "loadPlayback" function will take care of it.
+		if (slot == null) {
+			recording = new Video.VideoRecorder(gameHeight, gameWidth);
+		}
 		control = new PlayControl();
 		primeControls();
 	}
 
 	function loadPlayback(video:Video) {
 		playback = Some(new Video.VideoPlayer(video));
-		initialDirection = video.initialDirection;
-		recording = new Video.VideoRecorder(initialDirection);
+		recording = new Video.VideoRecorder(video.initialGameHeight, video.initialGameWidth);
+		setResolution(video.initialGameHeight, video.initialGameWidth);
 	}
 
 	// Keyboard interface.
@@ -290,8 +324,8 @@ class Engine {
 
 		// p to replay the video in slot 0 at normal speed
 		if (input == CoffeeInput.Replay) {
-			loadPlayback(slots[0]);
 			resetLevel(0, true);
+			loadPlayback(slots[0]);
 			control.speed = 1;
 			triggerPausedCallback();
 			return true;
@@ -302,8 +336,8 @@ class Engine {
 			case CoffeeInput.Slot(slot):
 				// replay slot
 				if (!ctrlKey) {
-					loadPlayback(slots[slot]);
 					resetLevel(slot);
+					loadPlayback(slots[slot]);
 					control.speed = 2;
 					if (altKey)
 						control.pause();

@@ -8,14 +8,25 @@ typedef Action = {
 	var down:Bool;
 }
 
+typedef ResolutionAction = {
+	var frame:Int;
+	var height:Int;
+	var width:Int;
+}
+
 class Video {
 	static var headerSize = 6 * 4;
 	static var delaySize = 5;
 	static var longDelaySize = 10;
+	static var resolutionDelaySize = 12;
+	static var resolutionSize = 14;
 
 	public var actions:Array<Action>;
+	public var resolutionActions:Array<ResolutionAction>;
 	public var pauseFrame:Int = 0;
-	public var initialDirection:Int = 0; // 0 for none, 1 for left, 2 for right
+
+	public var initialGameHeight:Int;
+	public var initialGameWidth:Int;
 
 	private function getOption<T>(x:Option<T>):T {
 		switch x {
@@ -28,14 +39,17 @@ class Video {
 
 	public function new(?save:String) {
 		actions = new Array();
+		resolutionActions = new Array();
+
 		if (save != null) {
 			// Load from save.
 			var reader = new Bitstream.BSReader(save);
-			var saveSize = getOption(reader.readInt(12));
-			initialDirection = getOption(reader.readInt(12));
+
+			var actionsLength = getOption(reader.readInt(12));
 			pauseFrame = getOption(reader.readInt(headerSize));
+			
 			var frame = 0;
-			for (i in 0...saveSize) {
+			for (i in 0...actionsLength) {
 				var longDelay = getOption(reader.read(1))[0];
 				var delay = getOption(reader.readInt(longDelay ? longDelaySize : delaySize));
 				var code = getOption(reader.readInt(3));
@@ -43,14 +57,27 @@ class Video {
 				frame += delay;
 				actions.push({frame: frame, code: code, down: down[0]});
 			}
+			
+			initialGameHeight = getOption(reader.readInt(resolutionSize));
+			initialGameWidth = getOption(reader.readInt(resolutionSize));
+
+			var resolutionActionsLength = getOption(reader.readInt(8));
+			frame = 0;
+			for (i in 0...resolutionActionsLength) {
+				var delay = getOption(reader.readInt(resolutionDelaySize));
+				var height = getOption(reader.readInt(resolutionSize));
+				var width = getOption(reader.readInt(resolutionSize));
+				frame += delay;
+				resolutionActions.push({frame: frame, height: height, width: width});
+			}
 		}
 	}
 
 	public function toString():String {
 		var writer = new Bitstream.BSWriter();
 		writer.writeInt(actions.length, 12);
-		writer.writeInt(initialDirection, 12);
 		writer.writeInt(pauseFrame, headerSize);
+		
 		var lastFrame = 0;
 		for (action in actions) {
 			var delay = action.frame - lastFrame;
@@ -61,6 +88,21 @@ class Video {
 			writer.writeInt(action.code, 3);
 			writer.write([action.down]);
 		}
+
+		writer.writeInt(initialGameHeight, resolutionSize);
+		writer.writeInt(initialGameWidth, resolutionSize);
+
+		writer.writeInt(resolutionActions.length, 8);
+		lastFrame = 0;
+		for (action in resolutionActions) {
+			var delay = action.frame - lastFrame;
+			lastFrame = action.frame;
+
+			writer.writeInt(delay, resolutionDelaySize);
+			writer.writeInt(action.height, resolutionSize);
+			writer.writeInt(action.width, resolutionSize);
+		}
+
 		return writer.toString();
 	}
 
@@ -95,8 +137,10 @@ class Video {
 	public function copy():Video {
 		var video = new Video();
 		video.actions = actions.copy();
+		video.resolutionActions = resolutionActions.copy();
 		video.pauseFrame = pauseFrame;
-		video.initialDirection = initialDirection;
+		video.initialGameHeight = initialGameHeight;
+		video.initialGameWidth = initialGameWidth;
 		return video;
 	}
 }
@@ -105,13 +149,22 @@ class VideoRecorder {
 	public var video:Video = new Video();
 
 	private var keyStates:Array<Bool>;
+	
+	private var gameHeight:Int;
+	private var gameWidth:Int;
 
-	public function new(initialDirection:Int) {
+	public function new(initialGameHeight:Int, initialGameWidth:Int) {
 		keyStates = new Array();
 		for (i in 0...Video.keyCodes.length) {
 			keyStates.push(false);
 		}
-		video.initialDirection = initialDirection;
+
+		video.initialGameHeight = initialGameHeight;
+		gameHeight = initialGameHeight;
+		video.initialGameWidth = initialGameWidth;
+		gameWidth = initialGameWidth;
+
+		trace('Initial resolution: ${initialGameWidth}x${initialGameHeight}');
 	}
 
 	public function recordKey(frame:Int, keyCode:Int, down:Bool, silent:Bool) {
@@ -128,6 +181,24 @@ class VideoRecorder {
 			case None:
 				return;
 		}
+	}
+
+	public function recordResolutionChange(frame:Int, newHeight:Int, newWidth:Int) {
+		// Do nothing if the resolution wasn't actually changed
+		if (gameHeight == newHeight && gameWidth == newWidth)
+			return;
+
+		// We only want to allow changing resolution once in a given frame.
+		// Check if there is already a resolution change in the current frame,
+		// and if so - replace it.
+		if (video.resolutionActions.length > 0) {
+			var lastAction = video.resolutionActions[video.resolutionActions.length - 1];
+			if (lastAction.frame == frame)
+				video.resolutionActions.pop();
+		}
+
+		video.resolutionActions.push({frame: frame, height: newHeight, width: newWidth});
+		trace('Resolution changed to ${newWidth}x${newHeight} @ ${frame}');
 	}
 
 	public function saveVideo(frame:Int):Video {
@@ -151,5 +222,13 @@ class VideoPlayer {
 			res.push({code: Video.fromActionCode(action.code), down: action.down});
 		}
 		return res;
+	}
+
+	public function getResolutionAction(frame:Int):ResolutionAction {
+		while (video.resolutionActions.length > 0 && video.resolutionActions[0].frame == frame) {
+			var action = video.resolutionActions.shift();
+			return action;
+		}
+		return null;
 	}
 }
