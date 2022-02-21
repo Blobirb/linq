@@ -23,6 +23,7 @@ class Main {
 		infoTrace("`coffee.load(string, int)` to load a video into the chosen slot.");
 		infoTrace("`coffee.loadFullGame(array<string>)` to play a full game of several levels. Parameter is array of video codes.");
 		infoTrace("`coffee.clearFullGame()` to delete the current loaded full game video.");
+		infoTrace("`coffee.setResolution(width, height)` to change the game size. Width and height are integer numbers of pixels, and value of 0 means 100% of the window.");
 
 		var engine = new Engine();
 	}

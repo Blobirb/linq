@@ -208,7 +208,7 @@ var Engine = function() {
 };
 Engine.__name__ = true;
 Engine.prototype = {
-	setResolutionWrapper: function(height,width) {
+	setResolutionWrapper: function(width,height) {
 		if(Util.isSome(this.playback)) {
 			return;
 		}
@@ -619,6 +619,7 @@ Main.main = function() {
 	Main.infoTrace("`coffee.load(string, int)` to load a video into the chosen slot.");
 	Main.infoTrace("`coffee.loadFullGame(array<string>)` to play a full game of several levels. Parameter is array of video codes.");
 	Main.infoTrace("`coffee.clearFullGame()` to delete the current loaded full game video.");
+	Main.infoTrace("`coffee.setResolution(width, height)` to change the game size. Width and height are integer numbers of pixels, and value of 0 means 100% of the window.");
 	var engine = new Engine();
 };
 Math.__name__ = true;

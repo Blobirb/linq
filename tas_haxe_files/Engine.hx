@@ -94,7 +94,7 @@ class Engine {
 		calculateFps();
 	}
 
-	function setResolutionWrapper(height:Int, width:Int) {
+	function setResolutionWrapper(width:Int, height:Int) {
 		// Not allowing to manually change resolution if we are in playback
 		if (Util.isSome(playback))
 			return;
