@@ -802,6 +802,8 @@ VideoRecorder.prototype = {
 			}
 		}
 		this.video.resolutionActions.push({ frame : frame, height : newHeight, width : newWidth});
+		this.gameHeight = newHeight;
+		this.gameWidth = newWidth;
 		console.log("Resolution changed to " + newWidth + "x" + newHeight + " @ " + frame);
 	}
 	,saveVideo: function(frame) {

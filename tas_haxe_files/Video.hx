@@ -198,6 +198,8 @@ class VideoRecorder {
 		}
 
 		video.resolutionActions.push({frame: frame, height: newHeight, width: newWidth});
+		gameHeight = newHeight;
+		gameWidth = newWidth;
 		trace('Resolution changed to ${newWidth}x${newHeight} @ ${frame}');
 	}
 
